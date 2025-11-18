@@ -932,9 +932,17 @@
       </activation>
       <repositories>
         <repository>
-          <id>splunk-artifactory</id>
+          <id>splunk-artifactory-releases</id>
           <name>Splunk Releases</name>
           <url>https://splunk.jfrog.io/splunk/ext-releases-local</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
+          <id>splunk-artifactory-snapshots</id>
+          <url>https://splunk.jfrog.io/splunk/ext-snapshots-local</url>
+          <releases><enabled>false</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
         </repository>
       </repositories>
     </profile>

@@ -333,6 +333,18 @@ public class DataStreamToSQL {
     String getDatastreamSourceType();
 
     void setDatastreamSourceType(String value);
+
+    @TemplateParameter.Boolean(
+        order = 20,
+        optional = true,
+        description = "Format timestamps in MySQL format",
+        helpText =
+            "When enabled, formats timestamp fields as 'yyyy-MM-dd HH:mm:ss' instead of ISO 8601 format. "
+                + "Default is false (ISO 8601 format).")
+    @Default.Boolean(false)
+    Boolean getUseMysqlTimestampFormat();
+
+    void setUseMysqlTimestampFormat(Boolean value);
   }
 
   /**
@@ -482,7 +494,8 @@ public class DataStreamToSQL {
                     options.getRfcStartDateTime())
                 .withRenameColumnValue("_metadata_row_id", "rowid")
                 .withHashRowId()
-                .withDatastreamSourceType(options.getDatastreamSourceType()));
+                .withDatastreamSourceType(options.getDatastreamSourceType())
+                .withMysqlTimestampFormat(options.getUseMysqlTimestampFormat()));
 
     /*
      * Stage 2: Write JSON Strings to SQL Insert Strings

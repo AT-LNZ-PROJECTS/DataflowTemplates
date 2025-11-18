@@ -120,11 +120,25 @@ public final class FormatDatastreamJsonToJson
 
       while (dataKeys.hasNext()) {
         String key = dataKeys.next();
+        JsonNode value = payload.get(key);
 
-        if (this.lowercaseSourceColumns) {
-          outputObject.put(key.toLowerCase(), payload.get(key));
+        // Check if the value is a text node that looks like an ISO timestamp
+        if (useMysqlTimestampFormat
+            && value != null
+            && value.isTextual()
+            && isIsoTimestamp(value.textValue())) {
+          String formattedValue = formatTimestampIfNeeded(value.textValue());
+          if (this.lowercaseSourceColumns) {
+            outputObject.put(key.toLowerCase(), formattedValue);
+          } else {
+            outputObject.put(key, formattedValue);
+          }
         } else {
-          outputObject.put(key, payload.get(key));
+          if (this.lowercaseSourceColumns) {
+            outputObject.put(key.toLowerCase(), value);
+          } else {
+            outputObject.put(key, value);
+          }
         }
       }
     }
@@ -275,5 +289,21 @@ public final class FormatDatastreamJsonToJson
 
   private long getCurrentTimestamp() {
     return System.currentTimeMillis() / 1000L;
+  }
+
+  /**
+   * Check if a string value looks like an ISO 8601 timestamp.
+   *
+   * @param value The string value to check
+   * @return true if the value matches ISO 8601 timestamp pattern
+   */
+  private boolean isIsoTimestamp(String value) {
+    if (value == null || value.isEmpty()) {
+      return false;
+    }
+    // Match ISO 8601 format: YYYY-MM-DDTHH:MM:SS[.fraction][timezone]
+    // Examples: 2023-11-13T10:30:00Z, 2023-11-13T10:30:00.123Z, 2023-11-13T10:30:00+00:00
+    return value.matches(
+        "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})?");
   }
 }

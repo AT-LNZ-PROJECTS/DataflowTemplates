@@ -16,6 +16,9 @@
 package com.google.cloud.teleport.v2.datastream.transforms;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -34,9 +37,12 @@ public abstract class FormatDatastreamRecord<InputT, OutputT> extends DoFn<Input
   protected Map<String, String> renameColumns = new HashMap<String, String>();
   protected boolean hashRowId = false;
   protected String datastreamSourceType;
+  protected Boolean useMysqlTimestampFormat = false;
 
   static final String ROW_ID_CHARSET =
       "+/0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  static final DateTimeFormatter MYSQL_TIMESTAMP_FORMAT =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
   static final Map<Character, Long> ROW_ID_CHARSET_MAP =
       LongStream.range(0, ROW_ID_CHARSET.length())
           .mapToObj(i -> i)
@@ -72,6 +78,32 @@ public abstract class FormatDatastreamRecord<InputT, OutputT> extends DoFn<Input
   public FormatDatastreamRecord withDatastreamSourceType(String datastreamSourceType) {
     this.datastreamSourceType = datastreamSourceType;
     return this;
+  }
+
+  /** Set whether to format timestamps in MySQL format. */
+  public FormatDatastreamRecord withMysqlTimestampFormat(Boolean useMysqlTimestampFormat) {
+    this.useMysqlTimestampFormat = useMysqlTimestampFormat;
+    return this;
+  }
+
+  /**
+   * Format an ISO 8601 timestamp string to MySQL format if useMysqlTimestampFormat is enabled.
+   *
+   * @param isoTimestamp The ISO 8601 timestamp string to format
+   * @return The formatted timestamp string (MySQL format if enabled, original otherwise)
+   */
+  protected String formatTimestampIfNeeded(String isoTimestamp) {
+    if (!useMysqlTimestampFormat || isoTimestamp == null) {
+      return isoTimestamp;
+    }
+
+    try {
+      Instant instant = Instant.parse(isoTimestamp);
+      return MYSQL_TIMESTAMP_FORMAT.format(instant);
+    } catch (Exception e) {
+      LOG.warn("Failed to parse timestamp: {}. Returning original value.", isoTimestamp, e);
+      return isoTimestamp;
+    }
   }
 
   protected void applyRenameColumns(ObjectNode outputObject) {

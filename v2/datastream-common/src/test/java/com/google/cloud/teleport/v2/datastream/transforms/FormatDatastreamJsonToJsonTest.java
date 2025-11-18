@@ -15,6 +15,8 @@
  */
 package com.google.cloud.teleport.v2.datastream.transforms;
 
+import static org.junit.Assert.assertTrue;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +31,7 @@ import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Rule;
 import org.junit.Test;
@@ -119,6 +122,112 @@ public class FormatDatastreamJsonToJsonTest {
     pipeline.run();
   }
 
+  @Test
+  public void testProcessElement_mysqlTimestampFormat() throws JsonProcessingException {
+    String jsonWithTimestamps =
+        "{\"uuid\":\"test-uuid-001\",\"read_timestamp\":\"2023-11-13 10:30:00.123\","
+            + "\"source_timestamp\":\"2023-11-13T10:30:00.123Z\",\"object\":\"TEST_TABLE\",\"read_method\":\"mysql-cdc\",\"stream_name\":\"test-stream\",\"schema_key\":\"test-key\",\"source_metadata\":{\"schema\":\"test_schema\",\"table\":\"test_table\",\"database\":\"test_db\",\"is_deleted\":false,\"change_type\":\"INSERT\",\"primary_keys\":[\"id\"]},\"payload\":{\"id\":1,\"created_at\":\"2023-11-13T08:15:30Z\",\"updated_at\":\"2023-11-13T10:30:45.678Z\",\"name\":\"Test Record\"}}";
+
+    Map<String, String> renameColumns = ImmutableMap.of();
+
+    FailsafeElementCoder<String, String> failsafeElementCoder =
+        FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+
+    PCollection<FailsafeElement<String, String>> pCollection =
+        pipeline
+            .apply("CreateInput", Create.of(jsonWithTimestamps))
+            .apply(
+                "FormatDatastreamJsonToJson",
+                ParDo.of(
+                    (FormatDatastreamJsonToJson)
+                        FormatDatastreamJsonToJson.create()
+                            .withStreamName("test-stream")
+                            .withRenameColumnValues(renameColumns)
+                            .withMysqlTimestampFormat(true)
+                            .withLowercaseSourceColumns(false)))
+            .setCoder(failsafeElementCoder);
+
+    PAssert.that(pCollection)
+        .satisfies(
+            (SerializableFunction<Iterable<FailsafeElement<String, String>>, Void>)
+                elements -> {
+                  ObjectMapper mapper = new ObjectMapper();
+                  for (FailsafeElement<String, String> element : elements) {
+                    try {
+                      JsonNode changeEvent = mapper.readTree(element.getPayload());
+                      String createdAt = changeEvent.get("created_at").asText();
+                      String updatedAt = changeEvent.get("updated_at").asText();
+
+                      // Verify MySQL format: yyyy-MM-dd HH:mm:ss
+                      assertTrue(
+                          "created_at should be in MySQL format",
+                          createdAt.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+                      assertTrue(
+                          "updated_at should be in MySQL format",
+                          updatedAt.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+                    } catch (JsonProcessingException e) {
+                      throw new RuntimeException(e);
+                    }
+                  }
+                  return null;
+                });
+
+    pipeline.run();
+  }
+
+  @Test
+  public void testProcessElement_isoTimestampFormat() throws JsonProcessingException {
+    String jsonWithTimestamps =
+        "{\"uuid\":\"test-uuid-002\",\"read_timestamp\":\"2023-11-13 10:30:00.123\","
+            + "\"source_timestamp\":\"2023-11-13T10:30:00.123Z\",\"object\":\"TEST_TABLE\",\"read_method\":\"mysql-cdc\",\"stream_name\":\"test-stream\",\"schema_key\":\"test-key\",\"source_metadata\":{\"schema\":\"test_schema\",\"table\":\"test_table\",\"database\":\"test_db\",\"is_deleted\":false,\"change_type\":\"INSERT\",\"primary_keys\":[\"id\"]},\"payload\":{\"id\":1,\"created_at\":\"2023-11-13T08:15:30Z\",\"updated_at\":\"2023-11-13T10:30:45.678Z\",\"name\":\"Test Record\"}}";
+
+    Map<String, String> renameColumns = ImmutableMap.of();
+
+    FailsafeElementCoder<String, String> failsafeElementCoder =
+        FailsafeElementCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+
+    PCollection<FailsafeElement<String, String>> pCollection =
+        pipeline
+            .apply("CreateInput", Create.of(jsonWithTimestamps))
+            .apply(
+                "FormatDatastreamJsonToJson",
+                ParDo.of(
+                    (FormatDatastreamJsonToJson)
+                        FormatDatastreamJsonToJson.create()
+                            .withStreamName("test-stream")
+                            .withRenameColumnValues(renameColumns)
+                            .withMysqlTimestampFormat(false)
+                            .withLowercaseSourceColumns(false)))
+            .setCoder(failsafeElementCoder);
+
+    PAssert.that(pCollection)
+        .satisfies(
+            (SerializableFunction<Iterable<FailsafeElement<String, String>>, Void>)
+                elements -> {
+                  ObjectMapper mapper = new ObjectMapper();
+                  for (FailsafeElement<String, String> element : elements) {
+                    try {
+                      JsonNode changeEvent = mapper.readTree(element.getPayload());
+                      String createdAt = changeEvent.get("created_at").asText();
+                      String updatedAt = changeEvent.get("updated_at").asText();
+
+                      // Verify ISO format: yyyy-MM-ddTHH:mm:ss[.fraction]Z
+                      assertTrue(
+                          "created_at should be in ISO format",
+                          createdAt.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z"));
+                      assertTrue(
+                          "updated_at should be in ISO format",
+                          updatedAt.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z"));
+                    } catch (JsonProcessingException e) {
+                      throw new RuntimeException(e);
+                    }
+                  }
+                  return null;
+                });
+
+    pipeline.run();
+  }
+
   // Static nested DoFn class to remove timestamp property
   static class RemoveTimestampPropertyFn
       extends DoFn<FailsafeElement<String, String>, FailsafeElement<String, String>> {
@@ -136,4 +245,6 @@ public class FormatDatastreamJsonToJsonTest {
       out.output(FailsafeElement.of(changeEvent.toString(), changeEvent.toString()));
     }
   }
+
+  // Validates that timestamps in payload are in MySQL format
 }

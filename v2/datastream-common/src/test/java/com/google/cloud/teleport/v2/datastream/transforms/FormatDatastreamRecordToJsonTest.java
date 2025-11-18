@@ -215,6 +215,52 @@ public class FormatDatastreamRecordToJsonTest {
   }
 
   @Test
+  public void testTimestampTzWithMysqlFormat() throws JsonProcessingException {
+    ObjectNode objectNode = new ObjectNode(new JsonNodeFactory(true));
+
+    Schema timestampTzSchema = generateTimestampTzSchema();
+    GenericRecord timestampTzRecord = generateTimestampTzRecord(1697289000000000L, 0);
+
+    // Test with ISO format (default)
+    UnifiedTypesFormatter.handleDatastreamRecordType(
+        "iso_timestamp", timestampTzSchema, timestampTzRecord, objectNode, false);
+
+    String isoResult = objectNode.get("iso_timestamp").asText();
+    assertTrue(
+        "Timestamp should be in ISO format", isoResult.matches("\\d{4}-\\d{2}-\\d{2}T.*Z"));
+
+    // Test with MySQL format enabled
+    objectNode = new ObjectNode(new JsonNodeFactory(true));
+    UnifiedTypesFormatter.handleDatastreamRecordType(
+        "mysql_timestamp", timestampTzSchema, timestampTzRecord, objectNode, true);
+
+    String mysqlResult = objectNode.get("mysql_timestamp").asText();
+    assertTrue(
+        "Timestamp should be in MySQL format",
+        mysqlResult.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+  }
+
+  private Schema generateTimestampTzSchema() {
+    return SchemaBuilder.builder()
+        .record("timestampTz")
+        .fields()
+        .name("timestamp")
+        .type(SchemaBuilder.builder().longType())
+        .noDefault()
+        .name("offset")
+        .type(SchemaBuilder.builder().intType())
+        .noDefault()
+        .endRecord();
+  }
+
+  private GenericRecord generateTimestampTzRecord(Long timestamp, Integer offset) {
+    GenericRecord genericRecord = new GenericData.Record(generateTimestampTzSchema());
+    genericRecord.put("timestamp", timestamp);
+    genericRecord.put("offset", offset);
+    return genericRecord;
+  }
+
+  @Test
   public void testLogicalType_micros() {
     String fieldNameNegativeNumber = "logicDate-0001-01-01";
     String fieldNamePositiveNumber = "logicDate-1981-10-21";
@@ -227,11 +273,62 @@ public class FormatDatastreamRecordToJsonTest {
     ObjectNode jsonObject = new ObjectNode(new JsonNodeFactory(true));
 
     FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
-        fieldNameNegativeNumber, fieldSchema, element, jsonObject);
+        fieldNameNegativeNumber, fieldSchema, element, jsonObject, false);
     assertTrue(jsonObject.get(fieldNameNegativeNumber).asText().equals("0001-01-01T00:00:00Z"));
     FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
-        fieldNamePositiveNumber, fieldSchema, element, jsonObject);
+        fieldNamePositiveNumber, fieldSchema, element, jsonObject, false);
     assertTrue(jsonObject.get(fieldNamePositiveNumber).asText().equals("1981-11-21T11:45:11Z"));
+  }
+
+  @Test
+  public void testLogicalType_microsWithMysqlFormat() {
+    String fieldNameNegativeNumber = "logicDate-0001-01-01";
+    String fieldNamePositiveNumber = "logicDate-1981-10-21";
+
+    Schema fieldSchema = Mockito.mock(Schema.class);
+    GenericRecord element = Mockito.mock(GenericRecord.class);
+    Mockito.when(fieldSchema.getLogicalType()).thenReturn(LogicalTypes.timestampMicros());
+    Mockito.when(element.get(fieldNameNegativeNumber)).thenReturn(-62135596800000000L);
+    Mockito.when(element.get(fieldNamePositiveNumber)).thenReturn(375191111000000L);
+    ObjectNode jsonObject = new ObjectNode(new JsonNodeFactory(true));
+
+    // Test with MySQL format enabled
+    FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
+        fieldNameNegativeNumber, fieldSchema, element, jsonObject, true);
+    assertTrue(
+        "Timestamp should be in MySQL format",
+        jsonObject.get(fieldNameNegativeNumber).asText().equals("0001-01-01 00:00:00"));
+    FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
+        fieldNamePositiveNumber, fieldSchema, element, jsonObject, true);
+    assertTrue(
+        "Timestamp should be in MySQL format",
+        jsonObject.get(fieldNamePositiveNumber).asText().equals("1981-11-21 11:45:11"));
+  }
+
+  @Test
+  public void testLogicalType_millisWithMysqlFormat() {
+    String fieldName = "timestampMillis";
+
+    Schema fieldSchema = Mockito.mock(Schema.class);
+    GenericRecord element = Mockito.mock(GenericRecord.class);
+    Mockito.when(fieldSchema.getLogicalType()).thenReturn(LogicalTypes.timestampMillis());
+    Mockito.when(element.get(fieldName)).thenReturn(1700000000000L); // 2023-11-14T22:13:20Z
+    ObjectNode jsonObject = new ObjectNode(new JsonNodeFactory(true));
+
+    // Test with ISO format (default)
+    FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
+        fieldName, fieldSchema, element, jsonObject, false);
+    assertTrue(
+        "Timestamp should be in ISO format",
+        jsonObject.get(fieldName).asText().equals("2023-11-14T22:13:20Z"));
+
+    // Test with MySQL format enabled
+    jsonObject = new ObjectNode(new JsonNodeFactory(true));
+    FormatDatastreamRecordToJson.UnifiedTypesFormatter.handleLogicalFieldType(
+        fieldName, fieldSchema, element, jsonObject, true);
+    assertTrue(
+        "Timestamp should be in MySQL format",
+        jsonObject.get(fieldName).asText().equals("2023-11-14 22:13:20"));
   }
 
   @Test
@@ -244,7 +341,8 @@ public class FormatDatastreamRecordToJsonTest {
         "basic",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(1000L, 1000L, 3890L, 25L, 331L, 12L, 9L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Test with any field set as null gets treated as 0. */
 
@@ -252,7 +350,8 @@ public class FormatDatastreamRecordToJsonTest {
         "null_minute",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(1000L, 1000L, 3890L, 25L, null, 12L, 9L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Basic test for negative field. */
 
@@ -260,35 +359,40 @@ public class FormatDatastreamRecordToJsonTest {
         "neg_field_basic",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(1000L, -1000L, 3890L, 25L, 31L, 12L, 9L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Test that negative nanos subtract from the fractional seconds, for example 12 Seconds -1 Nanos becomes 11.999999991s. */
     UnifiedTypesFormatter.handleDatastreamRecordType(
         "neg_fractional_seconds",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(1000L, 31L, 3890L, 25L, 31L, 12L, -9L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Test 0 interval. */
     UnifiedTypesFormatter.handleDatastreamRecordType(
         "zero_interval",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(0L, 0L, 0L, 0L, 0L, 0L, 0L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Test almost zero interval with only nanos set. */
     UnifiedTypesFormatter.handleDatastreamRecordType(
         "one_nano_interval",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(0L, 0L, 0L, 0L, 0L, 0L, 1L),
-        objectNode);
+        objectNode,
+        false);
     /* Test with large values. */
     UnifiedTypesFormatter.handleDatastreamRecordType(
         "large_values",
         generateIntervalNanosSchema(),
         generateIntervalNanosRecord(
             2147483647L, 11L, 2147483647L, 2147483647L, 2147483647L, 2147483647L, 999999999L),
-        objectNode);
+        objectNode,
+        false);
 
     /* Test with large negative values. */
     UnifiedTypesFormatter.handleDatastreamRecordType(
@@ -302,7 +406,8 @@ public class FormatDatastreamRecordToJsonTest {
             -2147483647L,
             -2147483647L,
             -999999999L),
-        objectNode);
+        objectNode,
+        false);
     String expected =
         "{\"basic\":\"P1000Y1000M3890DT30H31M12.000000009S\","
             + "\"null_minute\":\"P1000Y1000M3890DT25H12.000000009S\","

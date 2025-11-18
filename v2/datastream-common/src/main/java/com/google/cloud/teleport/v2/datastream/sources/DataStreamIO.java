@@ -119,6 +119,8 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
 
   private Boolean applyReshuffle = true;
 
+  private Boolean useMysqlTimestampFormat = false;
+
   public DataStreamIO() {}
 
   public DataStreamIO(
@@ -194,6 +196,11 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
     return this;
   }
 
+  public DataStreamIO withMysqlTimestampFormat(Boolean useMysqlTimestampFormat) {
+    this.useMysqlTimestampFormat = useMysqlTimestampFormat;
+    return this;
+  }
+
   @Override
   public PCollection<FailsafeElement<String, String>> expand(PBegin input) {
     PCollection<ReadableFile> datastreamFiles =
@@ -226,7 +233,8 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
                               .withRenameColumnValues(this.renameColumns)
                               .withHashRowId(this.hashRowId)
                               .withLowercaseSourceColumns(this.lowercaseSourceColumns)
-                              .withDatastreamSourceType(this.datastreamSourceType)))
+                              .withDatastreamSourceType(this.datastreamSourceType)
+                              .withMysqlTimestampFormat(this.useMysqlTimestampFormat)))
               .setCoder(coder);
     } else {
       SerializableFunction<GenericRecord, FailsafeElement<String, String>> parseFn =
@@ -235,7 +243,8 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
               .withRenameColumnValues(this.renameColumns)
               .withHashRowId(this.hashRowId)
               .withLowercaseSourceColumns(this.lowercaseSourceColumns)
-              .withDatastreamSourceType(this.datastreamSourceType);
+              .withDatastreamSourceType(this.datastreamSourceType)
+              .withMysqlTimestampFormat(this.useMysqlTimestampFormat);
       datastreamRecords =
           datastreamFiles
               .apply("ReshuffleFiles", Reshuffle.<ReadableFile>viaRandomKey())

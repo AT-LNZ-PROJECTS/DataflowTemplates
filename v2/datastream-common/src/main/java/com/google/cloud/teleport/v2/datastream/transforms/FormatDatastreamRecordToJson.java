@@ -68,6 +68,8 @@ public class FormatDatastreamRecordToJson
   static final DateTimeFormatter DEFAULT_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
   static final DateTimeFormatter DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER =
       DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+  static final DateTimeFormatter MYSQL_TIMESTAMP_FORMAT =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
   static final DecimalConversion DECIMAL_CONVERSION = new DecimalConversion();
   static final DateConversion DATE_CONVERSION = new DateConversion();
   private String streamName;
@@ -76,6 +78,7 @@ public class FormatDatastreamRecordToJson
   private Map<String, String> renameColumns = new HashMap<String, String>();
   private boolean hashRowId = false;
   private String datastreamSourceType;
+  private Boolean useMysqlTimestampFormat = false;
 
   private static final Long DATETIME_POSITIVE_INFINITY = 9223372036825200000L;
   private static final Long DATETIME_NEGATIVE_INFINITY = -9223372036832400000L;
@@ -118,11 +121,17 @@ public class FormatDatastreamRecordToJson
     return this;
   }
 
+  /** Set whether to format timestamps in MySQL format. */
+  public FormatDatastreamRecordToJson withMysqlTimestampFormat(Boolean useMysqlTimestampFormat) {
+    this.useMysqlTimestampFormat = useMysqlTimestampFormat;
+    return this;
+  }
+
   @Override
   public FailsafeElement<String, String> apply(GenericRecord record) {
     ObjectMapper mapper = new ObjectMapper();
     ObjectNode outputObject = mapper.createObjectNode();
-    UnifiedTypesFormatter.payloadToJson(getPayload(record), outputObject);
+    UnifiedTypesFormatter.payloadToJson(getPayload(record), outputObject, useMysqlTimestampFormat);
     if (this.lowercaseSourceColumns) {
       outputObject = getLowerCaseObject(outputObject);
     }
@@ -400,19 +409,24 @@ public class FormatDatastreamRecordToJson
   }
 
   static class UnifiedTypesFormatter {
-    public static void payloadToJson(GenericRecord payloadRecord, ObjectNode jsonNode) {
+    public static void payloadToJson(
+        GenericRecord payloadRecord, ObjectNode jsonNode, Boolean useMysqlTimestampFormat) {
       for (Field f : payloadRecord.getSchema().getFields()) {
-        putField(f.name(), f.schema(), payloadRecord, jsonNode);
+        putField(f.name(), f.schema(), payloadRecord, jsonNode, useMysqlTimestampFormat);
       }
     }
 
     static void putField(
-        String fieldName, Schema fieldSchema, GenericRecord record, ObjectNode jsonObject) {
+        String fieldName,
+        Schema fieldSchema,
+        GenericRecord record,
+        ObjectNode jsonObject,
+        Boolean useMysqlTimestampFormat) {
       // fieldSchema.getLogicalType() returns object of type org.apache.avro.LogicalType,
       // therefore, is null for custom logical types
       if (fieldSchema.getLogicalType() != null) {
         // Logical types should be handled separately.
-        handleLogicalFieldType(fieldName, fieldSchema, record, jsonObject);
+        handleLogicalFieldType(fieldName, fieldSchema, record, jsonObject, useMysqlTimestampFormat);
         return;
       } else if (fieldSchema.getProp(LOGICAL_TYPE) != null) {
         // Handling for custom logical types.
@@ -463,7 +477,11 @@ public class FormatDatastreamRecordToJson
           break;
         case RECORD:
           handleDatastreamRecordType(
-              fieldName, fieldSchema, (GenericRecord) record.get(fieldName), jsonObject);
+              fieldName,
+              fieldSchema,
+              (GenericRecord) record.get(fieldName),
+              jsonObject,
+              useMysqlTimestampFormat);
           break;
         case NULL:
           // Add key as null
@@ -480,7 +498,7 @@ public class FormatDatastreamRecordToJson
             }
             Schema actualSchema =
                 types.stream().filter(s -> !s.getType().equals(Schema.Type.NULL)).findFirst().get();
-            putField(fieldName, actualSchema, record, jsonObject);
+            putField(fieldName, actualSchema, record, jsonObject, useMysqlTimestampFormat);
             break;
           }
           FormatDatastreamRecordToJson.LOG.error(
@@ -535,7 +553,11 @@ public class FormatDatastreamRecordToJson
     }
 
     static void handleLogicalFieldType(
-        String fieldName, Schema fieldSchema, GenericRecord element, ObjectNode jsonObject) {
+        String fieldName,
+        Schema fieldSchema,
+        GenericRecord element,
+        ObjectNode jsonObject,
+        Boolean useMysqlTimestampFormat) {
       // TODO(pabloem) Actually test this.
       if (fieldSchema.getLogicalType() instanceof LogicalTypes.Date) {
         LocalDate date =
@@ -575,15 +597,19 @@ public class FormatDatastreamRecordToJson
         } else {
           // adding the microsecond after it was removed in the millisecond conversion
           instant = instant.plusNanos(microseconds % 1000 * 1000L);
-          jsonObject.put(
-              fieldName,
-              instant.atOffset(ZoneOffset.UTC).format(DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER));
+          DateTimeFormatter formatter =
+              useMysqlTimestampFormat
+                  ? MYSQL_TIMESTAMP_FORMAT
+                  : DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER;
+          jsonObject.put(fieldName, instant.atOffset(ZoneOffset.UTC).format(formatter));
         }
       } else if (fieldSchema.getLogicalType() instanceof LogicalTypes.TimestampMillis) {
         Instant timestamp = Instant.ofEpochMilli(((Long) element.get(fieldName)));
-        jsonObject.put(
-            fieldName,
-            timestamp.atOffset(ZoneOffset.UTC).format(DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER));
+        DateTimeFormatter formatter =
+            useMysqlTimestampFormat
+                ? MYSQL_TIMESTAMP_FORMAT
+                : DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER;
+        jsonObject.put(fieldName, timestamp.atOffset(ZoneOffset.UTC).format(formatter));
       } else {
         LOG.error(
             "Unknown field type {} for field {} in {}. Ignoring it.",
@@ -594,7 +620,11 @@ public class FormatDatastreamRecordToJson
     }
 
     static void handleDatastreamRecordType(
-        String fieldName, Schema fieldSchema, GenericRecord element, ObjectNode jsonObject) {
+        String fieldName,
+        Schema fieldSchema,
+        GenericRecord element,
+        ObjectNode jsonObject,
+        Boolean useMysqlTimestampFormat) {
       switch (fieldSchema.getName()) {
         case "Json":
           jsonObject.put(fieldName, element.toString());
@@ -629,11 +659,12 @@ public class FormatDatastreamRecordToJson
               ZoneOffset.ofTotalSeconds(((Number) element.get("offset")).intValue() / 1000);
           ZonedDateTime fullDate = timestamp.atOffset(offset).toZonedDateTime();
           // BigQuery only has UTC timestamps so we convert to UTC and adjust
+          DateTimeFormatter timestampFormatter =
+              useMysqlTimestampFormat
+                  ? MYSQL_TIMESTAMP_FORMAT
+                  : DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER;
           jsonObject.put(
-              fieldName,
-              fullDate
-                  .withZoneSameInstant(ZoneId.of("UTC"))
-                  .format(DEFAULT_TIMESTAMP_WITH_TZ_FORMATTER));
+              fieldName, fullDate.withZoneSameInstant(ZoneId.of("UTC")).format(timestampFormatter));
           break;
           /*
            * The `intervalNano` maps to nano second precision interval type used by Cassandra Interval.
