@@ -196,6 +196,10 @@ public class DataStreamIO extends PTransform<PBegin, PCollection<FailsafeElement
     return this;
   }
 
+  public Boolean getUseMysqlTimestampFormat() {
+    return this.useMysqlTimestampFormat;
+  }
+
   public DataStreamIO withMysqlTimestampFormat(Boolean useMysqlTimestampFormat) {
     this.useMysqlTimestampFormat = useMysqlTimestampFormat;
     return this;
