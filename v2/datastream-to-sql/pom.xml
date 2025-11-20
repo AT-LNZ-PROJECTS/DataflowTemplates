@@ -28,6 +28,12 @@
 
     <artifactId>datastream-to-sql</artifactId>
 
+    <name>datastream-to-sql-timestamp-fixed</name>
+
+    <build>
+        <finalName>datastream-to-sql-timestamp-fixed-1.1</finalName>
+    </build>
+
     <description>
         Stream CDC Data from DataStream to SQL via GCS
     </description>

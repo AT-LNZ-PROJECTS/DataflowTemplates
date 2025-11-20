@@ -517,27 +517,6 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>${exec-maven-plugin.version}</version>
-        <executions>
-          <execution>
-            <id>clean-surefire-xml</id>
-            <phase>post-integration-test</phase>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-            <configuration>
-               <executable>bash</executable>
-               <arguments>
-                 <argument>-c</argument>
-                 <argument>find . -name "TEST-*.xml" -path "*/target/surefire-reports/*" -exec sed -E -i.bak -e ':a' -e 's/(time="[^\"]*),/\1/g' -e 'ta' {} \; || true</argument>
-               </arguments>
-             </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-report-plugin</artifactId>
         <version>3.5.3</version>
@@ -570,6 +549,39 @@
   </build>
 
   <profiles>
+    <profile>
+      <id>non-windows-exec</id>
+      <activation>
+        <os>
+          <family>!windows</family>
+        </os>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>${exec-maven-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>clean-surefire-xml</id>
+                <phase>post-integration-test</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>bash</executable>
+                  <arguments>
+                    <argument>-c</argument>
+                    <argument>find . -name "TEST-*.xml" -path "*/target/surefire-reports/*" -exec sed -E -i.bak -e ':a' -e 's/(time="[^\"]*),/\1/g' -e 'ta' {} \; || true</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <profile>
       <id>templatesIntegrationTests</id>
       <activation>
